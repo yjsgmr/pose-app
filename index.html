@@ -70,8 +70,7 @@
       height: 100%;
       object-fit: cover;
       transform: scaleX(-1);
-      /* デバッグのため表示する */
-      display: block;
+      display: block; /* カメラ映像も見えるように */
     }
     canvas {
       position: absolute;
@@ -118,8 +117,8 @@
     </div>
 
     <p class="hint">
-      ※カメラが真っ黒な場合は、ブラウザのカメラ権限を確認してください。<br />
-      ※骨格は水色、軌跡はオレンジで表示されます。
+      ・明るい場所で、体全体が映るように少し離れて立ってください。<br />
+      ・インカメラ（自撮り）の映像に水色の骨格が重なれば成功です。
     </p>
     <p class="status" id="status">初期化中...</p>
   </div>
@@ -132,7 +131,6 @@
 
     const targetSelect = document.getElementById("target");
     const clearButton = document.getElementById("clear");
-
     let trailPoints = [];
 
     const LANDMARK_INDEX = {
@@ -184,10 +182,9 @@
 
     window.addEventListener("resize", resizeCanvas);
 
-    // MediaPipe Pose セットアップ
+    // Pose 初期化
     let pose;
     try {
-      // UMD 版では Pose というグローバルにクラスが入っている想定
       pose = new Pose.Pose({
         locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5/${file}`,
       });
@@ -195,8 +192,9 @@
         modelComplexity: 1,
         smoothLandmarks: true,
         enableSegmentation: false,
-        minDetectionConfidence: 0.5,
-        minTrackingConfidence: 0.5,
+        selfieMode: true,                 // ← インカメラ想定
+        minDetectionConfidence: 0.3,      // ← 少しゆるく
+        minTrackingConfidence: 0.3,
       });
       pose.onResults(onResults);
       setStatus("Pose 初期化完了。カメラ起動中...");
@@ -209,9 +207,7 @@
       try {
         setStatus("カメラアクセス要求中...");
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: "user", // インカメラ
-          },
+          video: { facingMode: "user" },
           audio: false,
         });
         videoElement.srcObject = stream;
@@ -241,18 +237,18 @@
       canvasCtx.save();
       canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
 
-      // カメラ映像を描画
+      // カメラ映像
       if (results.image) {
         canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
       }
 
       const landmarks = results.poseLandmarks;
       if (!landmarks) {
-        setStatus("Pose: ランドマーク未検出（人がフレームに入ってますか？）");
+        setStatus("Pose: ランドマーク未検出（体全体が映るように少し下がってみてください）");
         canvasCtx.restore();
         return;
       } else {
-        setStatus("Pose: ランドマーク検出中");
+        setStatus("Pose: ランドマーク検出中！");
       }
 
       drawSkeleton(landmarks);
