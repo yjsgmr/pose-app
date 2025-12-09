@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
-  <title>Pose Tracking Simple Debug + Camera</title>
+  <title>Pose Tracking – 軌跡ON/OFF・録画・カメラ切替付き</title>
   <!-- MediaPipe Pose 本体 -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5/pose.js"></script>
 
@@ -19,18 +19,18 @@
       padding: 16px;
       gap: 12px;
     }
-    h1 { font-size: 1.2rem; margin-bottom: 4px; }
+    h1 { font-size: 1.2rem; margin-bottom: 4px; text-align: center; }
     .app-container {
       width: 100%;
-      max-width: 480px;
+      max-width: 520px;
       display: flex;
       flex-direction: column;
       gap: 8px;
-      align-items: center;
+      align-items: stretch;
     }
-    .controls {
-      width: 100%;
+    .row {
       display: flex;
+      flex-wrap: wrap;
       gap: 8px;
       align-items: center;
       justify-content: space-between;
@@ -38,6 +38,7 @@
     label { font-size: 0.85rem; }
     select {
       flex: 1;
+      min-width: 120px;
       padding: 6px 8px;
       border-radius: 999px;
       border: 1px solid #374151;
@@ -49,11 +50,26 @@
       padding: 6px 10px;
       border-radius: 999px;
       border: none;
-      font-size: 0.85rem;
+      font-size: 0.8rem;
       cursor: pointer;
       background: #f97316;
       color: white;
       font-weight: 600;
+      white-space: nowrap;
+    }
+    button:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    .checkbox-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 0.8rem;
+    }
+    input[type="checkbox"] {
+      width: 14px;
+      height: 14px;
     }
 
     .video-wrapper {
@@ -100,9 +116,10 @@
 </head>
 <body>
   <div class="app-container">
-    <h1>骨格検出 &amp; 軌跡表示（シンプル版）</h1>
+    <h1>骨格検出 &amp; 軌跡表示<br>（軌跡ON/OFF・録画・カメラ切替付き）</h1>
 
-    <div class="controls">
+    <!-- 上段：追跡パーツ・軌跡 ON/OFF -->
+    <div class="row">
       <label for="target">追跡パーツ：</label>
       <select id="target">
         <option value="center">体の中心</option>
@@ -112,42 +129,76 @@
         <option value="left_ankle">左足首</option>
         <option value="right_ankle">右足首</option>
       </select>
-      <button id="clear">軌跡クリア</button>
+
+      <label class="checkbox-label">
+        <input type="checkbox" id="trailToggle" checked />
+        軌跡表示
+      </label>
+
+      <button id="clearTrail">軌跡クリア</button>
     </div>
 
+    <!-- 中段：録画・再生・カメラ切替 -->
+    <div class="row">
+      <button id="startRecord">記録開始</button>
+      <button id="stopRecord" disabled>記録停止</button>
+      <button id="playRecord" disabled>リプレイ再生</button>
+      <button id="clearRecord" disabled>記録データ削除</button>
+      <button id="switchCamera">カメラ切替（前面）</button>
+    </div>
+
+    <!-- カメラ＆描画 -->
     <div class="video-wrapper">
       <video id="video" playsinline autoplay muted></video>
       <canvas id="output"></canvas>
     </div>
 
     <p class="hint">
-      ・まずカメラ映像が表示されます。<br />
-      ・そのあと、体が映ると水色の骨格＋オレンジの軌跡が出ます。
+      ・「カメラ切替」で前面／背面カメラを切り替えられます。<br>
+      ・「記録開始 → 記録停止 → リプレイ再生」で骨格の動きを再生できます。
     </p>
     <p class="status" id="status">カメラ開始ボタンを押してください。</p>
-    <button id="start">カメラ開始</button>
+    <div class="row" style="justify-content:center;">
+      <button id="start">カメラ開始</button>
+    </div>
   </div>
 
   <script>
     const videoElement = document.getElementById("video");
     const canvasElement = document.getElementById("output");
     const canvasCtx = canvasElement.getContext("2d");
-    const statusEl = document.getElementById("status");
-    const targetSelect = document.getElementById("target");
-    const clearButton = document.getElementById("clear");
-    const startButton = document.getElementById("start");
 
+    const statusEl      = document.getElementById("status");
+    const targetSelect  = document.getElementById("target");
+    const trailToggle   = document.getElementById("trailToggle");
+    const clearTrailBtn = document.getElementById("clearTrail");
+    const startButton   = document.getElementById("start");
+
+    const startRecordBtn = document.getElementById("startRecord");
+    const stopRecordBtn  = document.getElementById("stopRecord");
+    const playRecordBtn  = document.getElementById("playRecord");
+    const clearRecordBtn = document.getElementById("clearRecord");
+    const switchCameraBtn = document.getElementById("switchCamera");
+
+    // 状態
     let trailPoints = [];
-    let pose = null;         // Pose インスタンス
-    let poseReady = false;   // Pose 初期化完了フラグ
+    let isTrailEnabled = true;
+
+    let pose = null;
+    let poseReady = false;
+
+    let currentFacingMode = "user";   // "user" or "environment"
+    let videoStream = null;
+    let loopStarted = false;
+    let mode = "live";                // "live" or "replay"
+
+    let isRecording = false;
+    let recordedFrames = [];          // 各要素は landmarks 配列
+    let replayIndex = 0;
 
     function setStatus(msg) {
       statusEl.textContent = msg;
     }
-
-    clearButton.addEventListener("click", () => {
-      trailPoints = [];
-    });
 
     function resizeCanvas() {
       const rect = canvasElement.getBoundingClientRect();
@@ -156,6 +207,19 @@
     }
     window.addEventListener("resize", resizeCanvas);
 
+    // 軌跡 ON/OFF
+    trailToggle.addEventListener("change", () => {
+      isTrailEnabled = trailToggle.checked;
+      if (!isTrailEnabled) {
+        trailPoints = [];
+      }
+    });
+
+    clearTrailBtn.addEventListener("click", () => {
+      trailPoints = [];
+    });
+
+    // ランドマーク index
     const LANDMARK_INDEX = {
       nose: 0,
       left_shoulder: 11,
@@ -204,6 +268,7 @@
     }
 
     function drawTrail() {
+      if (!isTrailEnabled) return;
       if (trailPoints.length < 2) return;
       canvasCtx.lineWidth = 4;
       canvasCtx.strokeStyle = "#ff9800"; // オレンジ
@@ -243,7 +308,13 @@
       });
     }
 
+    // ==== Pose ライブ結果処理 ====
     function onResults(results) {
+      if (mode !== "live") {
+        // リプレイ中はライブ結果を無視
+        return;
+      }
+
       resizeCanvas();
       canvasCtx.save();
       canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
@@ -263,16 +334,30 @@
 
       drawSkeleton(landmarks);
 
-      const targetKey = targetSelect.value;
-      const targetPoint = getTargetPoint(targetKey, landmarks);
-      if (targetPoint) {
-        const px = targetPoint.x * canvasElement.width;
-        const py = targetPoint.y * canvasElement.height;
-        trailPoints.push({ x: px, y: py });
+      // 記録中ならこのフレームを保存（深いコピー）
+      if (isRecording) {
+        const copy = landmarks.map(lm => ({ ...lm }));
+        recordedFrames.push(copy);
+        // 録画が始まったら再生・削除ボタンを有効化
+        if (recordedFrames.length === 1) {
+          playRecordBtn.disabled = false;
+          clearRecordBtn.disabled = false;
+        }
+      }
 
-        const MAX_POINTS = 200;
-        if (trailPoints.length > MAX_POINTS) {
-          trailPoints.splice(0, trailPoints.length - MAX_POINTS);
+      // 軌跡更新
+      if (isTrailEnabled) {
+        const targetKey = targetSelect.value;
+        const targetPoint = getTargetPoint(targetKey, landmarks);
+        if (targetPoint) {
+          const px = targetPoint.x * canvasElement.width;
+          const py = targetPoint.y * canvasElement.height;
+          trailPoints.push({ x: px, y: py });
+
+          const MAX_POINTS = 200;
+          if (trailPoints.length > MAX_POINTS) {
+            trailPoints.splice(0, trailPoints.length - MAX_POINTS);
+          }
         }
       }
 
@@ -280,23 +365,19 @@
       canvasCtx.restore();
     }
 
-    // Pose 初期化（Pose / Pose.Pose 両対応）
+    // ==== Pose 初期化（Pose / Pose.Pose 両対応）====
     function initPose() {
       try {
         let PoseClass = null;
 
-        // 1. script が読み込まれているか
         if (typeof Pose === "undefined") {
           setStatus("カメラのみ動作中（Pose グローバルが存在しません）");
           return;
         }
 
-        // 2. どの形で生えているか判定
         if (typeof Pose === "function") {
-          // 例: window.Pose = function Pose() {...}
           PoseClass = Pose;
         } else if (typeof Pose === "object" && typeof Pose.Pose === "function") {
-          // 例: window.Pose = { Pose: class Pose {...} }
           PoseClass = Pose.Pose;
         } else {
           setStatus("カメラのみ動作中（Pose のクラス形状が想定と異なります）");
@@ -316,52 +397,175 @@
         });
         pose.onResults(onResults);
         poseReady = true;
-        setStatus("カメラ起動成功。Pose も初期化完了。検出中...");
+        setStatus("カメラ起動成功。Pose 初期化完了。検出中...");
       } catch (e) {
         console.error(e);
         setStatus("Pose 初期化エラー: " + e.message);
       }
     }
 
-    async function startCamera() {
-      try {
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-          setStatus("エラー: このブラウザは getUserMedia に対応していません。Chrome の最新版を使ってください。");
-          return;
-        }
+    // ==== カメラ制御 ====
+    async function stopCamera() {
+      if (videoStream) {
+        videoStream.getTracks().forEach(t => t.stop());
+        videoStream = null;
+      }
+    }
 
+    async function startCameraStream() {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setStatus("エラー: このブラウザは getUserMedia に対応していません。Chrome の最新版を使ってください。");
+        return;
+      }
+
+      try {
         setStatus("カメラアクセス要求中...");
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "user" },
+        const constraints = {
+          video: { facingMode: currentFacingMode },
           audio: false,
-        });
+        };
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        videoStream = stream;
         videoElement.srcObject = stream;
         await videoElement.play();
         setStatus("カメラ起動成功（Pose 初期化中...）");
 
-        // カメラが動いたら Pose 初期化
-        initPose();
-
-        // フレームループ開始
-        const loop = async () => {
-          if (poseReady && pose && videoElement.readyState >= 2) {
-            try {
-              await pose.send({ image: videoElement });
-            } catch (e) {
-              console.error(e);
-              setStatus("Pose 処理中にエラー: " + e.message);
-            }
-          }
-          requestAnimationFrame(loop);
-        };
-        loop();
+        if (!poseReady) {
+          initPose();
+        }
       } catch (e) {
         console.error(e);
         setStatus("カメラ取得に失敗しました: " + e.name + " / " + e.message);
       }
     }
 
-    startButton.addEventListener("click", startCamera);
+    // メインループ（1回だけ開始）
+    async function frameLoop() {
+      if (poseReady && pose && mode === "live" && videoElement.readyState >= 2) {
+        try {
+          await pose.send({ image: videoElement });
+        } catch (e) {
+          console.error(e);
+          setStatus("Pose 処理中にエラー: " + e.message);
+        }
+      }
+      if (loopStarted) {
+        requestAnimationFrame(frameLoop);
+      }
+    }
+
+    // ==== 録画・リプレイ ====
+    startRecordBtn.addEventListener("click", () => {
+      recordedFrames = [];
+      isRecording = true;
+      mode = "live";
+      replayIndex = 0;
+      trailPoints = [];
+      startRecordBtn.disabled = true;
+      stopRecordBtn.disabled = false;
+      playRecordBtn.disabled = true;
+      clearRecordBtn.disabled = true;
+      setStatus("記録中... 動きを終えたら「記録停止」を押してください。");
+    });
+
+    stopRecordBtn.addEventListener("click", () => {
+      isRecording = false;
+      stopRecordBtn.disabled = true;
+      startRecordBtn.disabled = false;
+      playRecordBtn.disabled = recordedFrames.length === 0;
+      clearRecordBtn.disabled = recordedFrames.length === 0;
+      if (recordedFrames.length === 0) {
+        setStatus("記録がありません。");
+      } else {
+        setStatus(`記録完了（フレーム数: ${recordedFrames.length}）。「リプレイ再生」で再生できます。`);
+      }
+    });
+
+    clearRecordBtn.addEventListener("click", () => {
+      recordedFrames = [];
+      playRecordBtn.disabled = true;
+      clearRecordBtn.disabled = true;
+      setStatus("記録データを削除しました。");
+    });
+
+    playRecordBtn.addEventListener("click", () => {
+      if (recordedFrames.length === 0) {
+        setStatus("記録データがありません。");
+        return;
+      }
+      mode = "replay";
+      isRecording = false;
+      replayIndex = 0;
+      trailPoints = [];
+      setStatus("リプレイ再生中...");
+
+      startRecordBtn.disabled = true;
+      stopRecordBtn.disabled = true;
+      playRecordBtn.disabled = true;
+
+      replayStep();
+    });
+
+    function replayStep() {
+      if (mode !== "replay") return;
+      if (replayIndex >= recordedFrames.length) {
+        mode = "live";
+        setStatus("リプレイ終了。ライブモードに戻りました。");
+        startRecordBtn.disabled = false;
+        playRecordBtn.disabled = recordedFrames.length === 0;
+        clearRecordBtn.disabled = recordedFrames.length === 0;
+        return;
+      }
+
+      const landmarks = recordedFrames[replayIndex];
+      resizeCanvas();
+      canvasCtx.save();
+      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+      // 背景は黒のまま、骨格だけ描画
+      drawSkeleton(landmarks);
+
+      if (isTrailEnabled) {
+        const targetKey = targetSelect.value;
+        const targetPoint = getTargetPoint(targetKey, landmarks);
+        if (targetPoint) {
+          const px = targetPoint.x * canvasElement.width;
+          const py = targetPoint.y * canvasElement.height;
+          trailPoints.push({ x: px, y: py });
+          const MAX_POINTS = 200;
+          if (trailPoints.length > MAX_POINTS) {
+            trailPoints.splice(0, trailPoints.length - MAX_POINTS);
+          }
+        }
+      }
+
+      drawTrail();
+      canvasCtx.restore();
+
+      replayIndex++;
+      requestAnimationFrame(replayStep);
+    }
+
+    // ==== カメラ切替 ====
+    switchCameraBtn.addEventListener("click", async () => {
+      currentFacingMode = currentFacingMode === "user" ? "environment" : "user";
+      switchCameraBtn.textContent = currentFacingMode === "user"
+        ? "カメラ切替（前面）"
+        : "カメラ切替（背面）";
+
+      await stopCamera();
+      await startCameraStream();
+    });
+
+    // ==== カメラ開始ボタン ====
+    startButton.addEventListener("click", async () => {
+      await startCameraStream();
+      if (!loopStarted) {
+        loopStarted = true;
+        frameLoop();
+      }
+      setStatus("カメラ起動 & Pose 処理中...");
+    });
   </script>
 </body>
 </html>
