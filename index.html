@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
-  <title>Pose Tracking – 軌跡ON/OFF・録画・カメラ全切替付き</title>
+  <title>Pose Tracking – 3ビュー + 軌跡・録画・カメラ切替</title>
   <!-- MediaPipe Pose 本体 -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5/pose.js"></script>
 
@@ -22,7 +22,7 @@
     h1 { font-size: 1.2rem; margin-bottom: 4px; text-align: center; }
     .app-container {
       width: 100%;
-      max-width: 520px;
+      max-width: 600px;
       display: flex;
       flex-direction: column;
       gap: 10px;
@@ -47,10 +47,10 @@
       font-size: 0.95rem;
     }
     button {
-      padding: 12px 18px;         /* ← 以前の約2倍 */
+      padding: 12px 18px;
       border-radius: 999px;
       border: none;
-      font-size: 1rem;            /* ← 大きめの文字 */
+      font-size: 1rem;
       cursor: pointer;
       background: #f97316;
       color: white;
@@ -73,32 +73,59 @@
       height: 16px;
     }
 
-    .video-wrapper {
+    /* ビュー全体のレイアウト */
+    .views {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .view-row {
+      display: flex;
+      gap: 8px;
+      align-items: stretch;
+      justify-content: center;
+    }
+
+    .view-box {
       position: relative;
-      width: 100%;
-      border-radius: 24px;
-      overflow: hidden;
-      box-shadow: 0 18px 45px rgba(0, 0, 0, 0.6);
       background: black;
+      border-radius: 20px;
+      overflow: hidden;
+      box-shadow: 0 14px 32px rgba(0, 0, 0, 0.6);
+    }
+
+    /* 上ビュー：横長・薄め */
+    .view-top {
+      width: 100%;
+      aspect-ratio: 3 / 1;
+    }
+
+    /* 下の行：正面（大）＋横（小） */
+    .view-front {
+      flex: 2;
       aspect-ratio: 3 / 4;
     }
-    video {
+    .view-side {
+      flex: 1.2;
+      aspect-ratio: 3 / 4;
+    }
+
+    video, canvas {
       position: absolute;
       inset: 0;
       width: 100%;
       height: 100%;
       object-fit: cover;
+    }
+    video {
       transform: scaleX(-1);
       display: block;
     }
     canvas {
-      position: absolute;
-      inset: 0;
-      width: 100%;
-      height: 100%;
       transform: scaleX(-1);
       pointer-events: none;
     }
+
     .hint {
       font-size: 0.8rem;
       color: #9ca3af;
@@ -117,7 +144,10 @@
 </head>
 <body>
   <div class="app-container">
-    <h1>骨格検出 &amp; 軌跡表示<br>（軌跡ON/OFF・録画・カメラ全切替付き）</h1>
+    <h1>
+      骨格検出 &amp; 軌跡表示<br>
+      （正面＋横＋上ビュー / 軌跡ON/OFF / 録画 / カメラ全切替）
+    </h1>
 
     <!-- 上段：追跡パーツ・軌跡 ON/OFF -->
     <div class="row">
@@ -139,26 +169,47 @@
       <button id="clearTrail">軌跡クリア</button>
     </div>
 
-    <!-- 中段：録画・再生・カメラ切替 -->
+    <!-- 中段：録画・再生 -->
     <div class="row">
       <button id="startRecord">記録開始</button>
       <button id="stopRecord" disabled>記録停止</button>
       <button id="playRecord" disabled>リプレイ再生</button>
       <button id="clearRecord" disabled>記録データ削除</button>
     </div>
+
+    <!-- カメラ切替 -->
     <div class="row">
       <button id="switchCamera">カメラ切替（1/1）</button>
     </div>
 
-    <!-- カメラ＆描画 -->
-    <div class="video-wrapper">
-      <video id="video" playsinline autoplay muted></video>
-      <canvas id="output"></canvas>
+    <!-- 3ビュー（上 / 正面 / 横） -->
+    <div class="views">
+      <!-- 上から見たビュー（x-z） -->
+      <div class="view-row">
+        <div class="view-box view-top">
+          <canvas id="topCanvas"></canvas>
+        </div>
+      </div>
+
+      <!-- 正面 + 横並び -->
+      <div class="view-row">
+        <!-- 正面ビュー（カメラ映像 + 骨格） -->
+        <div class="view-box view-front">
+          <video id="video" playsinline autoplay muted></video>
+          <canvas id="frontCanvas"></canvas>
+        </div>
+        <!-- 横から見たビュー（z-y） -->
+        <div class="view-box view-side">
+          <canvas id="sideCanvas"></canvas>
+        </div>
+      </div>
     </div>
 
     <p class="hint">
-      ・「カメラ切替」で利用可能なすべてのカメラ（前面＋背面複数）を順番に切り替えます。<br>
-      ・「記録開始 → 記録停止 → リプレイ再生」で骨格の動きを再生できます（リプレイ時はカメラ映像は非表示）。
+      ・正面ビュー：カメラ映像＋骨格（2D）<br>
+      ・上ビュー：x–z 平面（上から見たイメージ）<br>
+      ・横ビュー：z–y 平面（横から見たイメージ）<br>
+      ・リプレイ中はカメラ映像は非表示で、骨格＋軌跡のみ再生されます。
     </p>
     <p class="status" id="status">カメラ開始ボタンを押してください。</p>
     <div class="row" style="justify-content:center;">
@@ -167,24 +218,30 @@
   </div>
 
   <script>
-    const videoElement = document.getElementById("video");
-    const canvasElement = document.getElementById("output");
-    const canvasCtx = canvasElement.getContext("2d");
+    // ==== DOM 取得 ====
+    const videoElement    = document.getElementById("video");
+    const frontCanvas     = document.getElementById("frontCanvas");
+    const topCanvas       = document.getElementById("topCanvas");
+    const sideCanvas      = document.getElementById("sideCanvas");
+    const frontCtx        = frontCanvas.getContext("2d");
+    const topCtx          = topCanvas.getContext("2d");
+    const sideCtx         = sideCanvas.getContext("2d");
 
-    const statusEl      = document.getElementById("status");
-    const targetSelect  = document.getElementById("target");
-    const trailToggle   = document.getElementById("trailToggle");
-    const clearTrailBtn = document.getElementById("clearTrail");
-    const startButton   = document.getElementById("start");
+    const statusEl        = document.getElementById("status");
+    const targetSelect    = document.getElementById("target");
+    const trailToggle     = document.getElementById("trailToggle");
+    const clearTrailBtn   = document.getElementById("clearTrail");
+    const startButton     = document.getElementById("start");
 
-    const startRecordBtn = document.getElementById("startRecord");
-    const stopRecordBtn  = document.getElementById("stopRecord");
-    const playRecordBtn  = document.getElementById("playRecord");
-    const clearRecordBtn = document.getElementById("clearRecord");
+    const startRecordBtn  = document.getElementById("startRecord");
+    const stopRecordBtn   = document.getElementById("stopRecord");
+    const playRecordBtn   = document.getElementById("playRecord");
+    const clearRecordBtn  = document.getElementById("clearRecord");
     const switchCameraBtn = document.getElementById("switchCamera");
 
-    // 状態
-    let trailPoints = [];
+    // ==== 状態 ====
+    // 3D 軌跡用：世界座標 (x, y, z) の配列
+    let trailPoints3D = [];
     let isTrailEnabled = true;
 
     let pose = null;
@@ -192,11 +249,15 @@
 
     let videoStream = null;
     let loopStarted = false;
-    let mode = "live";                // "live" or "replay"
+    let mode = "live";      // "live" or "replay"
 
     let isRecording = false;
-    let recordedFrames = [];          // 各要素は landmarks 配列
+    let recordedFrames = []; // 各要素 = landmarks 配列（x,y,z,...）
     let replayIndex = 0;
+
+    // リプレイ速度（ミリ秒）
+    // 100ms ≒ 10fps（ゆっくりめ）、66ms ≒ 15fps
+    const REPLAY_INTERVAL_MS = 100;
 
     // カメラデバイス情報
     let videoDevices = [];
@@ -207,26 +268,29 @@
       statusEl.textContent = msg;
     }
 
-    function resizeCanvas() {
-      const rect = canvasElement.getBoundingClientRect();
-      canvasElement.width = rect.width;
-      canvasElement.height = rect.height;
+    // ==== サイズ調整 ====
+    function resizeAllCanvases() {
+      [frontCanvas, topCanvas, sideCanvas].forEach(canvas => {
+        const rect = canvas.getBoundingClientRect();
+        canvas.width = rect.width;
+        canvas.height = rect.height;
+      });
     }
-    window.addEventListener("resize", resizeCanvas);
+    window.addEventListener("resize", resizeAllCanvases);
 
-    // 軌跡 ON/OFF
+    // ==== 軌跡 ON/OFF ====
     trailToggle.addEventListener("change", () => {
       isTrailEnabled = trailToggle.checked;
       if (!isTrailEnabled) {
-        trailPoints = [];
+        trailPoints3D = [];
       }
     });
 
     clearTrailBtn.addEventListener("click", () => {
-      trailPoints = [];
+      trailPoints3D = [];
     });
 
-    // ランドマーク index（顔・膝・足まで拡張）
+    // ==== ランドマーク index（顔・膝・足まで）====
     const LANDMARK_INDEX = {
       nose: 0,
       left_eye_inner: 1,
@@ -305,7 +369,8 @@
       ["nose", "right_shoulder"],
     ];
 
-    function getTargetPoint(key, landmarks) {
+    // ==== 3D ターゲット点（軌跡用）====
+    function getTargetPoint3D(key, landmarks) {
       if (!landmarks) return null;
 
       if (key === "center") {
@@ -316,82 +381,180 @@
         if (!ls || !rs || !lh || !rh) return null;
         const cx = (ls.x + rs.x + lh.x + rh.x) / 4;
         const cy = (ls.y + rs.y + lh.y + rh.y) / 4;
-        return { x: cx, y: cy };
+        const cz = (ls.z + rs.z + lh.z + rh.z) / 4;
+        return { x: cx, y: cy, z: cz };
       }
 
       const idx = LANDMARK_INDEX[key];
-      return landmarks[idx] || null;
+      const lm = landmarks[idx];
+      if (!lm) return null;
+      return { x: lm.x, y: lm.y, z: lm.z };
     }
 
-    function drawTrail() {
-      if (!isTrailEnabled) return;
-      if (trailPoints.length < 2) return;
-      canvasCtx.lineWidth = 4;
-      canvasCtx.strokeStyle = "#ff9800"; // オレンジ
-      canvasCtx.beginPath();
-      for (let i = 0; i < trailPoints.length; i++) {
-        const p = trailPoints[i];
-        if (i === 0) canvasCtx.moveTo(p.x, p.y);
-        else canvasCtx.lineTo(p.x, p.y);
-      }
-      canvasCtx.stroke();
+    // ==== 汎用：2軸投影用の正規化 ====
+    function computeAxisRange(landmarks, axisA, axisB) {
+      let minA = Infinity, maxA = -Infinity;
+      let minB = Infinity, maxB = -Infinity;
+      landmarks.forEach(lm => {
+        const a = lm[axisA];
+        const b = lm[axisB];
+        if (a < minA) minA = a;
+        if (a > maxA) maxA = a;
+        if (b < minB) minB = b;
+        if (b > maxB) maxB = b;
+      });
+      if (!isFinite(minA) || !isFinite(maxA)) { minA = -0.5; maxA = 0.5; }
+      if (!isFinite(minB) || !isFinite(maxB)) { minB = -0.5; maxB = 0.5; }
+
+      // 変化が小さすぎるときは少し余裕を持たせる
+      if (maxA - minA < 1e-3) { minA -= 0.5; maxA += 0.5; }
+      if (maxB - minB < 1e-3) { minB -= 0.5; maxB += 0.5; }
+
+      return { minA, maxA, minB, maxB };
     }
 
-    function drawSkeleton(landmarks) {
-      canvasCtx.lineWidth = 3;
-      canvasCtx.strokeStyle = "#00e5ff";
+    function projectValue(v, min, max, size, invert = false) {
+      const t = (v - min) / (max - min);
+      const u = invert ? (1 - t) : t;
+      return u * size;
+    }
 
+    // ==== 骨格描画（任意2軸投影）====
+    function drawSkeletonProjected(landmarks, ctx, width, height, axisPair) {
+      const [axisA, axisB] = axisPair; // e.g. ["x","y"], ["x","z"], ["z","y"]
+
+      const { minA, maxA, minB, maxB } = computeAxisRange(landmarks, axisA, axisB);
+
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = "#00e5ff";
+      ctx.fillStyle = "#00e5ff";
+
+      // 線
       SKELETON_CONNECTIONS.forEach(([aKey, bKey]) => {
         const a = landmarks[LANDMARK_INDEX[aKey]];
         const b = landmarks[LANDMARK_INDEX[bKey]];
         if (!a || !b) return;
-        const ax = a.x * canvasElement.width;
-        const ay = a.y * canvasElement.height;
-        const bx = b.x * canvasElement.width;
-        const by = b.y * canvasElement.height;
-        canvasCtx.beginPath();
-        canvasCtx.moveTo(ax, ay);
-        canvasCtx.lineTo(bx, by);
-        canvasCtx.stroke();
+        const ax = projectValue(a[axisA], minA, maxA, width, false);
+        const ay = projectValue(a[axisB], minB, maxB, height, true);
+        const bx = projectValue(b[axisA], minA, maxA, width, false);
+        const by = projectValue(b[axisB], minB, maxB, height, true);
+
+        ctx.beginPath();
+        ctx.moveTo(ax, ay);
+        ctx.lineTo(bx, by);
+        ctx.stroke();
       });
 
-      canvasCtx.fillStyle = "#00e5ff";
-      landmarks.forEach((lm) => {
-        const x = lm.x * canvasElement.width;
-        const y = lm.y * canvasElement.height;
-        canvasCtx.beginPath();
-        canvasCtx.arc(x, y, 3, 0, Math.PI * 2);
-        canvasCtx.fill();
+      // 点
+      landmarks.forEach(lm => {
+        const x = projectValue(lm[axisA], minA, maxA, width, false);
+        const y = projectValue(lm[axisB], minB, maxB, height, true);
+        ctx.beginPath();
+        ctx.arc(x, y, 3, 0, Math.PI * 2);
+        ctx.fill();
       });
     }
 
-    // ==== Pose ライブ結果処理 ====
+    // ==== 軌跡描画（任意2軸投影）====
+    function drawTrailProjected(trail3D, ctx, width, height, axisPair) {
+      if (!isTrailEnabled) return;
+      if (trail3D.length < 2) return;
+      const [axisA, axisB] = axisPair;
+
+      const { minA, maxA, minB, maxB } = (() => {
+        let minA = Infinity, maxA = -Infinity;
+        let minB = Infinity, maxB = -Infinity;
+        trail3D.forEach(p => {
+          const a = p[axisA];
+          const b = p[axisB];
+          if (a < minA) minA = a;
+          if (a > maxA) maxA = a;
+          if (b < minB) minB = b;
+          if (b > maxB) maxB = b;
+        });
+        if (!isFinite(minA) || !isFinite(maxA)) { minA = -0.5; maxA = 0.5; }
+        if (!isFinite(minB) || !isFinite(maxB)) { minB = -0.5; maxB = 0.5; }
+        if (maxA - minA < 1e-3) { minA -= 0.5; maxA += 0.5; }
+        if (maxB - minB < 1e-3) { minB -= 0.5; maxB += 0.5; }
+        return { minA, maxA, minB, maxB };
+      })();
+
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = "#ff9800";
+      ctx.beginPath();
+      for (let i = 0; i < trail3D.length; i++) {
+        const p = trail3D[i];
+        const x = projectValue(p[axisA], minA, maxA, width, false);
+        const y = projectValue(p[axisB], minB, maxB, height, true);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+
+    // ==== ライブ時結果処理 ====
     function onResults(results) {
       if (mode !== "live") {
-        // リプレイ中はライブ結果を無視
         return;
       }
 
-      resizeCanvas();
-      canvasCtx.save();
-      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-
-      if (results.image) {
-        canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
-      }
+      resizeAllCanvases();
 
       const landmarks = results.poseLandmarks;
+      // 正面ビュー：ビデオ＋骨格＋軌跡（x-y）
+      frontCtx.save();
+      frontCtx.clearRect(0, 0, frontCanvas.width, frontCanvas.height);
+      if (results.image) {
+        frontCtx.drawImage(results.image, 0, 0, frontCanvas.width, frontCanvas.height);
+      }
+
       if (!landmarks) {
         setStatus("Pose: ランドマーク未検出（体全体が映るように少し下がってください）");
-        canvasCtx.restore();
+        frontCtx.restore();
+
+        // 上・横ビューも消去
+        topCtx.clearRect(0, 0, topCanvas.width, topCanvas.height);
+        sideCtx.clearRect(0, 0, sideCanvas.width, sideCanvas.height);
         return;
       }
 
       setStatus("Pose: ランドマーク検出中！");
 
-      drawSkeleton(landmarks);
+      // ライブ時：正面ビュー（x-y）
+      drawSkeletonProjected(landmarks, frontCtx, frontCanvas.width, frontCanvas.height, ["x", "y"]);
 
-      // 記録中ならこのフレームを保存（深いコピー）
+      // 軌跡用3Dポイント
+      if (isTrailEnabled) {
+        const targetKey = targetSelect.value;
+        const p3d = getTargetPoint3D(targetKey, landmarks);
+        if (p3d) {
+          trailPoints3D.push(p3d);
+          const MAX_POINTS = 200;
+          if (trailPoints3D.length > MAX_POINTS) {
+            trailPoints3D.splice(0, trailPoints3D.length - MAX_POINTS);
+          }
+        }
+      }
+
+      // 正面軌跡
+      drawTrailProjected(trailPoints3D, frontCtx, frontCanvas.width, frontCanvas.height, ["x", "y"]);
+      frontCtx.restore();
+
+      // 上ビュー（x-z）
+      topCtx.save();
+      topCtx.clearRect(0, 0, topCanvas.width, topCanvas.height);
+      drawSkeletonProjected(landmarks, topCtx, topCanvas.width, topCanvas.height, ["x", "z"]);
+      drawTrailProjected(trailPoints3D, topCtx, topCanvas.width, topCanvas.height, ["x", "z"]);
+      topCtx.restore();
+
+      // 横ビュー（z-y）
+      sideCtx.save();
+      sideCtx.clearRect(0, 0, sideCanvas.width, sideCanvas.height);
+      drawSkeletonProjected(landmarks, sideCtx, sideCanvas.width, sideCanvas.height, ["z", "y"]);
+      drawTrailProjected(trailPoints3D, sideCtx, sideCanvas.width, sideCanvas.height, ["z", "y"]);
+      sideCtx.restore();
+
+      // 記録中なら記録
       if (isRecording) {
         const copy = landmarks.map(lm => ({ ...lm }));
         recordedFrames.push(copy);
@@ -400,25 +563,6 @@
           clearRecordBtn.disabled = false;
         }
       }
-
-      // 軌跡更新
-      if (isTrailEnabled) {
-        const targetKey = targetSelect.value;
-        const targetPoint = getTargetPoint(targetKey, landmarks);
-        if (targetPoint) {
-          const px = targetPoint.x * canvasElement.width;
-          const py = targetPoint.y * canvasElement.height;
-          trailPoints.push({ x: px, y: py });
-
-          const MAX_POINTS = 200;
-          if (trailPoints.length > MAX_POINTS) {
-            trailPoints.splice(0, trailPoints.length - MAX_POINTS);
-          }
-        }
-      }
-
-      drawTrail();
-      canvasCtx.restore();
     }
 
     // ==== Pose 初期化（Pose / Pose.Pose 両対応）====
@@ -557,7 +701,7 @@
       isRecording = true;
       mode = "live";
       replayIndex = 0;
-      trailPoints = [];
+      trailPoints3D = [];
       startRecordBtn.disabled = true;
       stopRecordBtn.disabled = false;
       playRecordBtn.disabled = true;
@@ -593,7 +737,7 @@
       mode = "replay";
       isRecording = false;
       replayIndex = 0;
-      trailPoints = [];
+      trailPoints3D = [];
       setStatus("リプレイ再生中...");
 
       // リプレイ中はカメラ映像を非表示
@@ -606,7 +750,7 @@
       replayStep();
     });
 
-    // ★ リプレイ速度を 30fps 相当に調整（setTimeout 33ms）
+    // ★ リプレイ：3ビュー同時に再生。速度は REPLAY_INTERVAL_MS で調整。
     function replayStep() {
       if (mode !== "replay") return;
       if (replayIndex >= recordedFrames.length) {
@@ -623,34 +767,45 @@
       }
 
       const landmarks = recordedFrames[replayIndex];
-      resizeCanvas();
-      canvasCtx.save();
-      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+      resizeAllCanvases();
 
-      // 背景は黒のまま、骨格だけ描画（カメラ映像は非表示）
-      drawSkeleton(landmarks);
-
+      // 軌跡用3Dポイント更新
       if (isTrailEnabled) {
         const targetKey = targetSelect.value;
-        const targetPoint = getTargetPoint(targetKey, landmarks);
-        if (targetPoint) {
-          const px = targetPoint.x * canvasElement.width;
-          const py = targetPoint.y * canvasElement.height;
-          trailPoints.push({ x: px, y: py });
+        const p3d = getTargetPoint3D(targetKey, landmarks);
+        if (p3d) {
+          trailPoints3D.push(p3d);
           const MAX_POINTS = 200;
-          if (trailPoints.length > MAX_POINTS) {
-            trailPoints.splice(0, trailPoints.length - MAX_POINTS);
+          if (trailPoints3D.length > MAX_POINTS) {
+            trailPoints3D.splice(0, trailPoints3D.length - MAX_POINTS);
           }
         }
       }
 
-      drawTrail();
-      canvasCtx.restore();
+      // 正面ビュー（x-y） ※リプレイ中は背景は黒（カメラは見えていない）
+      frontCtx.save();
+      frontCtx.clearRect(0, 0, frontCanvas.width, frontCanvas.height);
+      drawSkeletonProjected(landmarks, frontCtx, frontCanvas.width, frontCanvas.height, ["x", "y"]);
+      drawTrailProjected(trailPoints3D, frontCtx, frontCanvas.width, frontCanvas.height, ["x", "y"]);
+      frontCtx.restore();
+
+      // 上ビュー（x-z）
+      topCtx.save();
+      topCtx.clearRect(0, 0, topCanvas.width, topCanvas.height);
+      drawSkeletonProjected(landmarks, topCtx, topCanvas.width, topCanvas.height, ["x", "z"]);
+      drawTrailProjected(trailPoints3D, topCtx, topCanvas.width, topCanvas.height, ["x", "z"]);
+      topCtx.restore();
+
+      // 横ビュー（z-y）
+      sideCtx.save();
+      sideCtx.clearRect(0, 0, sideCanvas.width, sideCanvas.height);
+      drawSkeletonProjected(landmarks, sideCtx, sideCanvas.width, sideCanvas.height, ["z", "y"]);
+      drawTrailProjected(trailPoints3D, sideCtx, sideCanvas.width, sideCanvas.height, ["z", "y"]);
+      sideCtx.restore();
 
       replayIndex++;
-      // 約 30fps
       if (mode === "replay") {
-        setTimeout(replayStep, 33);
+        setTimeout(replayStep, REPLAY_INTERVAL_MS);
       }
     }
 
