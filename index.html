@@ -280,16 +280,30 @@
       canvasCtx.restore();
     }
 
-    // Pose 初期化
+    // Pose 初期化（Pose / Pose.Pose 両対応）
     function initPose() {
       try {
-        // UMD 版はグローバルに Pose が生えていて、その中にクラス Pose がいる想定
-        if (typeof Pose === "undefined" || !Pose.Pose) {
-          setStatus("カメラのみ動作中（Pose ライブラリが読み込めていません）");
+        let PoseClass = null;
+
+        // 1. script が読み込まれているか
+        if (typeof Pose === "undefined") {
+          setStatus("カメラのみ動作中（Pose グローバルが存在しません）");
           return;
         }
 
-        pose = new Pose.Pose({
+        // 2. どの形で生えているか判定
+        if (typeof Pose === "function") {
+          // 例: window.Pose = function Pose() {...}
+          PoseClass = Pose;
+        } else if (typeof Pose === "object" && typeof Pose.Pose === "function") {
+          // 例: window.Pose = { Pose: class Pose {...} }
+          PoseClass = Pose.Pose;
+        } else {
+          setStatus("カメラのみ動作中（Pose のクラス形状が想定と異なります）");
+          return;
+        }
+
+        pose = new PoseClass({
           locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5/${file}`,
         });
         pose.setOptions({
