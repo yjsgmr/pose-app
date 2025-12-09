@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
-  <title>Pose Tracking – 軌跡ON/OFF・録画・カメラ切替付き</title>
+  <title>Pose Tracking – 軌跡ON/OFF・録画・カメラ全切替付き</title>
   <!-- MediaPipe Pose 本体 -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5/pose.js"></script>
 
@@ -116,7 +116,7 @@
 </head>
 <body>
   <div class="app-container">
-    <h1>骨格検出 &amp; 軌跡表示<br>（軌跡ON/OFF・録画・カメラ切替付き）</h1>
+    <h1>骨格検出 &amp; 軌跡表示<br>（軌跡ON/OFF・録画・カメラ全切替付き）</h1>
 
     <!-- 上段：追跡パーツ・軌跡 ON/OFF -->
     <div class="row">
@@ -144,7 +144,7 @@
       <button id="stopRecord" disabled>記録停止</button>
       <button id="playRecord" disabled>リプレイ再生</button>
       <button id="clearRecord" disabled>記録データ削除</button>
-      <button id="switchCamera">カメラ切替（前面）</button>
+      <button id="switchCamera">カメラ切替（1/1）</button>
     </div>
 
     <!-- カメラ＆描画 -->
@@ -154,7 +154,7 @@
     </div>
 
     <p class="hint">
-      ・「カメラ切替」で前面／背面カメラを切り替えられます。<br>
+      ・「カメラ切替」で利用可能なすべてのカメラ（前面＋背面複数）を順番に切り替えます。<br>
       ・「記録開始 → 記録停止 → リプレイ再生」で骨格の動きを再生できます。
     </p>
     <p class="status" id="status">カメラ開始ボタンを押してください。</p>
@@ -187,7 +187,6 @@
     let pose = null;
     let poseReady = false;
 
-    let currentFacingMode = "user";   // "user" or "environment"
     let videoStream = null;
     let loopStarted = false;
     let mode = "live";                // "live" or "replay"
@@ -195,6 +194,11 @@
     let isRecording = false;
     let recordedFrames = [];          // 各要素は landmarks 配列
     let replayIndex = 0;
+
+    // カメラデバイス情報
+    let videoDevices = [];            // { deviceId, label, kind }
+    let currentDeviceIndex = 0;
+    let devicesInitialized = false;
 
     function setStatus(msg) {
       statusEl.textContent = msg;
@@ -219,32 +223,81 @@
       trailPoints = [];
     });
 
-    // ランドマーク index
+    // ランドマーク index（顔・膝・足まで拡張）
     const LANDMARK_INDEX = {
       nose: 0,
+      left_eye_inner: 1,
+      left_eye: 2,
+      left_eye_outer: 3,
+      right_eye_inner: 4,
+      right_eye: 5,
+      right_eye_outer: 6,
+      left_ear: 7,
+      right_ear: 8,
+      mouth_left: 9,
+      mouth_right: 10,
       left_shoulder: 11,
       right_shoulder: 12,
-      left_hip: 23,
-      right_hip: 24,
+      left_elbow: 13,
+      right_elbow: 14,
       left_wrist: 15,
       right_wrist: 16,
+      left_hip: 23,
+      right_hip: 24,
+      left_knee: 25,
+      right_knee: 26,
       left_ankle: 27,
       right_ankle: 28,
+      left_heel: 29,
+      right_heel: 30,
+      left_foot_index: 31,
+      right_foot_index: 32,
     };
 
+    // 骨格接続（顔・足も線でつなぐ）
     const SKELETON_CONNECTIONS = [
+      // 顔 - 左側
+      ["nose", "left_eye_inner"],
+      ["left_eye_inner", "left_eye"],
+      ["left_eye", "left_eye_outer"],
+      ["left_eye_outer", "left_ear"],
+      // 顔 - 右側
+      ["nose", "right_eye_inner"],
+      ["right_eye_inner", "right_eye"],
+      ["right_eye", "right_eye_outer"],
+      ["right_eye_outer", "right_ear"],
+      // 口
+      ["mouth_left", "mouth_right"],
+      ["nose", "mouth_left"],
+      ["nose", "mouth_right"],
+
+      // 胴体
       ["left_shoulder", "right_shoulder"],
       ["left_shoulder", "left_hip"],
       ["right_shoulder", "right_hip"],
       ["left_hip", "right_hip"],
+
+      // 左腕
       ["left_shoulder", "left_elbow"],
       ["left_elbow", "left_wrist"],
+
+      // 右腕
       ["right_shoulder", "right_elbow"],
       ["right_elbow", "right_wrist"],
+
+      // 左脚
       ["left_hip", "left_knee"],
       ["left_knee", "left_ankle"],
+      ["left_ankle", "left_heel"],
+      ["left_heel", "left_foot_index"],
+
+      // 右脚
       ["right_hip", "right_knee"],
       ["right_knee", "right_ankle"],
+      ["right_ankle", "right_heel"],
+      ["right_heel", "right_foot_index"],
+
+      // 首〜頭（補助的）
       ["nose", "left_shoulder"],
       ["nose", "right_shoulder"],
     ];
@@ -284,6 +337,7 @@
     function drawSkeleton(landmarks) {
       canvasCtx.lineWidth = 3;
       canvasCtx.strokeStyle = "#00e5ff";
+
       SKELETON_CONNECTIONS.forEach(([aKey, bKey]) => {
         const a = landmarks[LANDMARK_INDEX[aKey]];
         const b = landmarks[LANDMARK_INDEX[bKey]];
@@ -338,7 +392,6 @@
       if (isRecording) {
         const copy = landmarks.map(lm => ({ ...lm }));
         recordedFrames.push(copy);
-        // 録画が始まったら再生・削除ボタンを有効化
         if (recordedFrames.length === 1) {
           playRecordBtn.disabled = false;
           clearRecordBtn.disabled = false;
@@ -404,7 +457,32 @@
       }
     }
 
-    // ==== カメラ制御 ====
+    // ==== カメラデバイス管理 ====
+    async function updateDeviceList() {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        videoDevices = devices.filter(d => d.kind === "videoinput");
+        if (videoDevices.length === 0) {
+          videoDevices = [];
+          currentDeviceIndex = 0;
+        } else if (!videoDevices[currentDeviceIndex]) {
+          currentDeviceIndex = 0;
+        }
+        updateSwitchLabel();
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    function updateSwitchLabel() {
+      if (videoDevices.length <= 1) {
+        switchCameraBtn.textContent = "カメラ切替（1/1）";
+      } else {
+        switchCameraBtn.textContent =
+          `カメラ切替（${currentDeviceIndex + 1}/${videoDevices.length}）`;
+      }
+    }
+
     async function stopCamera() {
       if (videoStream) {
         videoStream.getTracks().forEach(t => t.stop());
@@ -420,15 +498,34 @@
 
       try {
         setStatus("カメラアクセス要求中...");
-        const constraints = {
-          video: { facingMode: currentFacingMode },
-          audio: false,
-        };
+
+        let constraints;
+        if (videoDevices.length > 0 && videoDevices[currentDeviceIndex]) {
+          // デバイスIDで指定（全カメラを順番に）
+          const devId = videoDevices[currentDeviceIndex].deviceId;
+          constraints = {
+            video: { deviceId: { exact: devId } },
+            audio: false,
+          };
+        } else {
+          // 初回など、デバイス一覧がまだないときのフォールバック
+          constraints = {
+            video: { facingMode: "user" },
+            audio: false,
+          };
+        }
+
         const stream = await navigator.mediaDevices.getUserMedia(constraints);
         videoStream = stream;
         videoElement.srcObject = stream;
         await videoElement.play();
         setStatus("カメラ起動成功（Pose 初期化中...）");
+
+        // 権限付与後にデバイス一覧を更新（背面カメラ名などが取れるようになる）
+        if (!devicesInitialized) {
+          devicesInitialized = true;
+          await updateDeviceList();
+        }
 
         if (!poseReady) {
           initPose();
@@ -548,11 +645,12 @@
 
     // ==== カメラ切替 ====
     switchCameraBtn.addEventListener("click", async () => {
-      currentFacingMode = currentFacingMode === "user" ? "environment" : "user";
-      switchCameraBtn.textContent = currentFacingMode === "user"
-        ? "カメラ切替（前面）"
-        : "カメラ切替（背面）";
-
+      if (videoDevices.length <= 1) {
+        setStatus("利用可能なカメラが1つだけのため、切り替えできません。");
+        return;
+      }
+      currentDeviceIndex = (currentDeviceIndex + 1) % videoDevices.length;
+      updateSwitchLabel();
       await stopCamera();
       await startCameraStream();
     });
