@@ -25,7 +25,7 @@
       max-width: 520px;
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 10px;
       align-items: stretch;
     }
     .row {
@@ -35,27 +35,28 @@
       align-items: center;
       justify-content: space-between;
     }
-    label { font-size: 0.85rem; }
+    label { font-size: 0.9rem; }
     select {
       flex: 1;
-      min-width: 120px;
-      padding: 6px 8px;
+      min-width: 140px;
+      padding: 8px 12px;
       border-radius: 999px;
       border: 1px solid #374151;
       background: #020617;
       color: #e5e7eb;
-      font-size: 0.9rem;
+      font-size: 0.95rem;
     }
     button {
-      padding: 6px 10px;
+      padding: 12px 18px;         /* ← 以前の約2倍 */
       border-radius: 999px;
       border: none;
-      font-size: 0.8rem;
+      font-size: 1rem;            /* ← 大きめの文字 */
       cursor: pointer;
       background: #f97316;
       color: white;
       font-weight: 600;
       white-space: nowrap;
+      flex-shrink: 0;
     }
     button:disabled {
       opacity: 0.4;
@@ -65,11 +66,11 @@
       display: inline-flex;
       align-items: center;
       gap: 4px;
-      font-size: 0.8rem;
+      font-size: 0.9rem;
     }
     input[type="checkbox"] {
-      width: 14px;
-      height: 14px;
+      width: 16px;
+      height: 16px;
     }
 
     .video-wrapper {
@@ -99,14 +100,14 @@
       pointer-events: none;
     }
     .hint {
-      font-size: 0.75rem;
+      font-size: 0.8rem;
       color: #9ca3af;
       margin-top: 4px;
       line-height: 1.4;
       text-align: center;
     }
     .status {
-      font-size: 0.75rem;
+      font-size: 0.8rem;
       color: #22c55e;
       margin-top: 4px;
       word-break: break-all;
@@ -144,6 +145,8 @@
       <button id="stopRecord" disabled>記録停止</button>
       <button id="playRecord" disabled>リプレイ再生</button>
       <button id="clearRecord" disabled>記録データ削除</button>
+    </div>
+    <div class="row">
       <button id="switchCamera">カメラ切替（1/1）</button>
     </div>
 
@@ -155,7 +158,7 @@
 
     <p class="hint">
       ・「カメラ切替」で利用可能なすべてのカメラ（前面＋背面複数）を順番に切り替えます。<br>
-      ・「記録開始 → 記録停止 → リプレイ再生」で骨格の動きを再生できます。
+      ・「記録開始 → 記録停止 → リプレイ再生」で骨格の動きを再生できます（リプレイ時はカメラ映像は非表示）。
     </p>
     <p class="status" id="status">カメラ開始ボタンを押してください。</p>
     <div class="row" style="justify-content:center;">
@@ -196,7 +199,7 @@
     let replayIndex = 0;
 
     // カメラデバイス情報
-    let videoDevices = [];            // { deviceId, label, kind }
+    let videoDevices = [];
     let currentDeviceIndex = 0;
     let devicesInitialized = false;
 
@@ -479,7 +482,7 @@
         switchCameraBtn.textContent = "カメラ切替（1/1）";
       } else {
         switchCameraBtn.textContent =
-          `カメラ切替（${currentDeviceIndex + 1}/${videoDevices.length}）`;
+          `カメラ切替（${currentDeviceIndex + 1}/${videoDevices.length})`;
       }
     }
 
@@ -501,14 +504,12 @@
 
         let constraints;
         if (videoDevices.length > 0 && videoDevices[currentDeviceIndex]) {
-          // デバイスIDで指定（全カメラを順番に）
           const devId = videoDevices[currentDeviceIndex].deviceId;
           constraints = {
             video: { deviceId: { exact: devId } },
             audio: false,
           };
         } else {
-          // 初回など、デバイス一覧がまだないときのフォールバック
           constraints = {
             video: { facingMode: "user" },
             audio: false,
@@ -521,7 +522,6 @@
         await videoElement.play();
         setStatus("カメラ起動成功（Pose 初期化中...）");
 
-        // 権限付与後にデバイス一覧を更新（背面カメラ名などが取れるようになる）
         if (!devicesInitialized) {
           devicesInitialized = true;
           await updateDeviceList();
@@ -596,6 +596,9 @@
       trailPoints = [];
       setStatus("リプレイ再生中...");
 
+      // リプレイ中はカメラ映像を非表示
+      videoElement.style.visibility = "hidden";
+
       startRecordBtn.disabled = true;
       stopRecordBtn.disabled = true;
       playRecordBtn.disabled = true;
@@ -603,11 +606,16 @@
       replayStep();
     });
 
+    // ★ リプレイ速度を 30fps 相当に調整（setTimeout 33ms）
     function replayStep() {
       if (mode !== "replay") return;
       if (replayIndex >= recordedFrames.length) {
         mode = "live";
         setStatus("リプレイ終了。ライブモードに戻りました。");
+
+        // カメラ映像を再表示
+        videoElement.style.visibility = "visible";
+
         startRecordBtn.disabled = false;
         playRecordBtn.disabled = recordedFrames.length === 0;
         clearRecordBtn.disabled = recordedFrames.length === 0;
@@ -619,7 +627,7 @@
       canvasCtx.save();
       canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
 
-      // 背景は黒のまま、骨格だけ描画
+      // 背景は黒のまま、骨格だけ描画（カメラ映像は非表示）
       drawSkeleton(landmarks);
 
       if (isTrailEnabled) {
@@ -640,7 +648,10 @@
       canvasCtx.restore();
 
       replayIndex++;
-      requestAnimationFrame(replayStep);
+      // 約 30fps
+      if (mode === "replay") {
+        setTimeout(replayStep, 33);
+      }
     }
 
     // ==== カメラ切替 ====
