@@ -151,7 +151,7 @@
     }
     window.addEventListener("resize", resizeCanvas);
 
-    // 追跡パーツのインデックス
+    // ランドマーク index
     const LANDMARK_INDEX = {
       nose: 0,
       left_shoulder: 11,
@@ -200,7 +200,6 @@
       canvasCtx.save();
       canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
 
-      // カメラ映像
       canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
 
       const landmarks = results.poseLandmarks;
@@ -212,20 +211,20 @@
 
       setStatus("Pose: ランドマーク検出中！");
 
-      // MediaPipe の公式ユーティリティで骨格描画（色だけ上書き）
-      DrawingUtils.drawConnectors(
+      // ★ ここがポイント：mpDrawingUtils / mpPose を使う
+      mpDrawingUtils.drawConnectors(
         canvasCtx,
         landmarks,
-        Pose.POSE_CONNECTIONS,
-        { color: "#00e5ff", lineWidth: 4 }  // 水色の骨格
+        mpPose.POSE_CONNECTIONS,
+        { color: "#00e5ff", lineWidth: 4 }
       );
-      DrawingUtils.drawLandmarks(
+      mpDrawingUtils.drawLandmarks(
         canvasCtx,
         landmarks,
-        { color: "#00e5ff", radius: 3 }    // 水色の点
+        { color: "#00e5ff", radius: 3 }
       );
 
-      // 追跡パーツの軌跡更新
+      // 追跡パーツの軌跡
       const targetKey = targetSelect.value;
       const targetPoint = getTargetPoint(targetKey, landmarks);
       if (targetPoint) {
@@ -239,30 +238,27 @@
         }
       }
 
-      // 軌跡描画（オレンジ）
       drawTrail();
-
       canvasCtx.restore();
     }
 
-    // Pose 初期化（公式サンプルに近い形）
-    const pose = new Pose.Pose({
+    // ★ ここもポイント：mpPose.Pose を使う
+    const pose = new mpPose.Pose({
       locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`,
     });
     pose.setOptions({
       modelComplexity: 1,
       smoothLandmarks: true,
       enableSegmentation: false,
-      selfieMode: true,               // 自撮り用
-      minDetectionConfidence: 0.3,    // 検出しやすく
+      selfieMode: true,
+      minDetectionConfidence: 0.3,
       minTrackingConfidence: 0.3,
     });
     pose.onResults(onResults);
 
-    // Camera Utils の利用（公式スタイル）
-    let camera = null;
+    // ★ Camera も mpCamera.Camera
     setStatus("カメラ起動準備中...");
-    camera = new Camera.Camera(videoElement, {
+    const camera = new mpCamera.Camera(videoElement, {
       onFrame: async () => {
         await pose.send({ image: videoElement });
       },
