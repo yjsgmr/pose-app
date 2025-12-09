@@ -429,15 +429,15 @@
       ctx.strokeStyle = "#00e5ff";
       ctx.fillStyle = "#00e5ff";
 
-      // 線
+      // 線（invert = false で上下反転しない）
       SKELETON_CONNECTIONS.forEach(([aKey, bKey]) => {
         const a = landmarks[LANDMARK_INDEX[aKey]];
         const b = landmarks[LANDMARK_INDEX[bKey]];
         if (!a || !b) return;
-        const ax = projectValue(a[axisA], minA, maxA, width, false);
-        const ay = projectValue(a[axisB], minB, maxB, height, true);
-        const bx = projectValue(b[axisA], minA, maxA, width, false);
-        const by = projectValue(b[axisB], minB, maxB, height, true);
+        const ax = projectValue(a[axisA], minA, maxA, width,  false);
+        const ay = projectValue(a[axisB], minB, maxB, height, false);
+        const bx = projectValue(b[axisA], minA, maxA, width,  false);
+        const by = projectValue(b[axisB], minB, maxB, height, false);
 
         ctx.beginPath();
         ctx.moveTo(ax, ay);
@@ -447,8 +447,8 @@
 
       // 点
       landmarks.forEach(lm => {
-        const x = projectValue(lm[axisA], minA, maxA, width, false);
-        const y = projectValue(lm[axisB], minB, maxB, height, true);
+        const x = projectValue(lm[axisA], minA, maxA, width,  false);
+        const y = projectValue(lm[axisB], minB, maxB, height, false);
         ctx.beginPath();
         ctx.arc(x, y, 3, 0, Math.PI * 2);
         ctx.fill();
@@ -484,8 +484,8 @@
       ctx.beginPath();
       for (let i = 0; i < trail3D.length; i++) {
         const p = trail3D[i];
-        const x = projectValue(p[axisA], minA, maxA, width, false);
-        const y = projectValue(p[axisB], minB, maxB, height, true);
+        const x = projectValue(p[axisA], minA, maxA, width,  false);
+        const y = projectValue(p[axisB], minB, maxB, height, false);
         if (i === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
       }
@@ -501,6 +501,7 @@
       resizeAllCanvases();
 
       const landmarks = results.poseLandmarks;
+
       // 正面ビュー：ビデオ＋骨格＋軌跡（x-y）
       frontCtx.save();
       frontCtx.clearRect(0, 0, frontCanvas.width, frontCanvas.height);
