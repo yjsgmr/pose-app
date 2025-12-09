@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
-  <title>Pose Tracking – 3ビュー + 軌跡・録画・カメラ切替</title>
+  <title>Pose Tracking – 正面1画面 + 軌跡・録画・カメラ切替</title>
   <!-- MediaPipe Pose 本体 -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5/pose.js"></script>
 
@@ -22,7 +22,7 @@
     h1 { font-size: 1.2rem; margin-bottom: 4px; text-align: center; }
     .app-container {
       width: 100%;
-      max-width: 600px;
+      max-width: 520px;
       display: flex;
       flex-direction: column;
       gap: 10px;
@@ -73,59 +73,32 @@
       height: 16px;
     }
 
-    /* ビュー全体のレイアウト */
-    .views {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-    .view-row {
-      display: flex;
-      gap: 8px;
-      align-items: stretch;
-      justify-content: center;
-    }
-
-    .view-box {
+    .video-wrapper {
       position: relative;
-      background: black;
-      border-radius: 20px;
-      overflow: hidden;
-      box-shadow: 0 14px 32px rgba(0, 0, 0, 0.6);
-    }
-
-    /* 上ビュー：横長・薄め */
-    .view-top {
       width: 100%;
-      aspect-ratio: 3 / 1;
-    }
-
-    /* 下の行：正面（大）＋横（小） */
-    .view-front {
-      flex: 2;
+      border-radius: 24px;
+      overflow: hidden;
+      box-shadow: 0 18px 45px rgba(0, 0, 0, 0.6);
+      background: black;
       aspect-ratio: 3 / 4;
     }
-    .view-side {
-      flex: 1.2;
-      aspect-ratio: 3 / 4;
-    }
-
-    video, canvas {
+    video {
       position: absolute;
       inset: 0;
       width: 100%;
       height: 100%;
       object-fit: cover;
-    }
-    video {
       transform: scaleX(-1);
       display: block;
     }
     canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
       transform: scaleX(-1);
       pointer-events: none;
     }
-
     .hint {
       font-size: 0.8rem;
       color: #9ca3af;
@@ -146,7 +119,7 @@
   <div class="app-container">
     <h1>
       骨格検出 &amp; 軌跡表示<br>
-      （正面＋横＋上ビュー / 軌跡ON/OFF / 録画 / カメラ全切替）
+      （正面ビュー / 軌跡ON/OFF / 録画 / 再生速度5段階 / カメラ切替）
     </h1>
 
     <!-- 上段：追跡パーツ・軌跡 ON/OFF -->
@@ -169,79 +142,67 @@
       <button id="clearTrail">軌跡クリア</button>
     </div>
 
-    <!-- 中段：録画・再生 -->
+    <!-- 中段：録画・再生＋速度切替 -->
     <div class="row">
       <button id="startRecord">記録開始</button>
       <button id="stopRecord" disabled>記録停止</button>
       <button id="playRecord" disabled>リプレイ再生</button>
       <button id="clearRecord" disabled>記録データ削除</button>
     </div>
-
-    <!-- カメラ切替 -->
     <div class="row">
-      <button id="switchCamera">カメラ切替（1/1）</button>
+      <label for="speedSelect">リプレイ速度：</label>
+      <select id="speedSelect">
+        <option value="200">① とても遅い</option>
+        <option value="150">② 遅い</option>
+        <option value="100" selected>③ ふつう</option>
+        <option value="66">④ 速い</option>
+        <option value="33">⑤ とても速い</option>
+      </select>
     </div>
 
-    <!-- 3ビュー（上 / 正面 / 横） -->
-    <div class="views">
-      <!-- 上から見たビュー（x-z） -->
-      <div class="view-row">
-        <div class="view-box view-top">
-          <canvas id="topCanvas"></canvas>
-        </div>
-      </div>
-
-      <!-- 正面 + 横並び -->
-      <div class="view-row">
-        <!-- 正面ビュー（カメラ映像 + 骨格） -->
-        <div class="view-box view-front">
-          <video id="video" playsinline autoplay muted></video>
-          <canvas id="frontCanvas"></canvas>
-        </div>
-        <!-- 横から見たビュー（z-y） -->
-        <div class="view-box view-side">
-          <canvas id="sideCanvas"></canvas>
-        </div>
-      </div>
-    </div>
-
-    <p class="hint">
-      ・正面ビュー：カメラ映像＋骨格（2D、カメラと完全一致）<br>
-      ・上ビュー：x–z 平面（上から見たイメージ）<br>
-      ・横ビュー：z–y 平面（横から見たイメージ）<br>
-      ・リプレイ中はカメラ映像は非表示で、骨格＋軌跡のみ再生されます。
-    </p>
-    <p class="status" id="status">カメラ開始ボタンを押してください。</p>
+    <!-- カメラ開始ボタン -->
     <div class="row" style="justify-content:center;">
       <button id="start">カメラ開始</button>
     </div>
+    <!-- カメラ切替ボタン（カメラ開始の下） -->
+    <div class="row" style="justify-content:center;">
+      <button id="switchCamera">カメラ切替（1/1）</button>
+    </div>
+
+    <!-- カメラ＆描画 1画面 -->
+    <div class="video-wrapper">
+      <video id="video" playsinline autoplay muted></video>
+      <canvas id="canvas"></canvas>
+    </div>
+
+    <p class="hint">
+      ・正面ビュー：カメラ映像＋骨格（カメラと一致）<br>
+      ・「記録開始 → 記録停止 → リプレイ再生」で動きを再生できます。<br>
+      ・リプレイ中の速度は「リプレイ速度」から5段階で切り替えられます。
+    </p>
+    <p class="status" id="status">カメラ開始ボタンを押してください。</p>
   </div>
 
   <script>
-    // ==== DOM 取得 ====
     const videoElement    = document.getElementById("video");
-    const frontCanvas     = document.getElementById("frontCanvas");
-    const topCanvas       = document.getElementById("topCanvas");
-    const sideCanvas      = document.getElementById("sideCanvas");
-    const frontCtx        = frontCanvas.getContext("2d");
-    const topCtx          = topCanvas.getContext("2d");
-    const sideCtx         = sideCanvas.getContext("2d");
+    const canvasElement   = document.getElementById("canvas");
+    const canvasCtx       = canvasElement.getContext("2d");
 
     const statusEl        = document.getElementById("status");
     const targetSelect    = document.getElementById("target");
     const trailToggle     = document.getElementById("trailToggle");
     const clearTrailBtn   = document.getElementById("clearTrail");
     const startButton     = document.getElementById("start");
+    const switchCameraBtn = document.getElementById("switchCamera");
 
     const startRecordBtn  = document.getElementById("startRecord");
     const stopRecordBtn   = document.getElementById("stopRecord");
     const playRecordBtn   = document.getElementById("playRecord");
     const clearRecordBtn  = document.getElementById("clearRecord");
-    const switchCameraBtn = document.getElementById("switchCamera");
+    const speedSelect     = document.getElementById("speedSelect");
 
-    // ==== 状態 ====
-    // 3D 軌跡用：世界座標 (x, y, z) の配列
-    let trailPoints3D = [];
+    // 状態
+    let trailPoints = [];
     let isTrailEnabled = true;
 
     let pose = null;
@@ -252,11 +213,9 @@
     let mode = "live";      // "live" or "replay"
 
     let isRecording = false;
-    let recordedFrames = []; // 各要素 = landmarks 配列（x,y,z,...）
+    let recordedFrames = []; // 各要素 = landmarks 配列
     let replayIndex = 0;
-
-    // リプレイ速度（ミリ秒）
-    const REPLAY_INTERVAL_MS = 100; // ≒10fps
+    let replayIntervalMs = parseInt(speedSelect.value, 10); // 初期値: 100ms
 
     // カメラデバイス情報
     let videoDevices = [];
@@ -267,29 +226,29 @@
       statusEl.textContent = msg;
     }
 
-    // ==== サイズ調整 ====
-    function resizeAllCanvases() {
-      [frontCanvas, topCanvas, sideCanvas].forEach(canvas => {
-        const rect = canvas.getBoundingClientRect();
-        canvas.width = rect.width;
-        canvas.height = rect.height;
-      });
+    function resizeCanvas() {
+      const rect = canvasElement.getBoundingClientRect();
+      canvasElement.width = rect.width;
+      canvasElement.height = rect.height;
     }
-    window.addEventListener("resize", resizeAllCanvases);
+    window.addEventListener("resize", resizeCanvas);
 
-    // ==== 軌跡 ON/OFF ====
+    // 軌跡 ON/OFF
     trailToggle.addEventListener("change", () => {
       isTrailEnabled = trailToggle.checked;
-      if (!isTrailEnabled) {
-        trailPoints3D = [];
-      }
+      if (!isTrailEnabled) trailPoints = [];
     });
 
     clearTrailBtn.addEventListener("click", () => {
-      trailPoints3D = [];
+      trailPoints = [];
     });
 
-    // ==== ランドマーク index（顔・膝・足まで）====
+    // リプレイ速度変更
+    speedSelect.addEventListener("change", () => {
+      replayIntervalMs = parseInt(speedSelect.value, 10);
+    });
+
+    // ランドマーク index
     const LANDMARK_INDEX = {
       nose: 0,
       left_eye_inner: 1,
@@ -320,7 +279,6 @@
       right_foot_index: 32,
     };
 
-    // 骨格接続（顔・足も線でつなぐ）
     const SKELETON_CONNECTIONS = [
       // 顔 - 左側
       ["nose", "left_eye_inner"],
@@ -368,57 +326,7 @@
       ["nose", "right_shoulder"],
     ];
 
-    // ==== 正面ビュー専用：骨格描画（カメラと一致する座標）====
-    function drawSkeletonFront(landmarks, ctx, width, height) {
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = "#00e5ff";
-      ctx.fillStyle = "#00e5ff";
-
-      // 線：x・y を直接画像座標に
-      SKELETON_CONNECTIONS.forEach(([aKey, bKey]) => {
-        const a = landmarks[LANDMARK_INDEX[aKey]];
-        const b = landmarks[LANDMARK_INDEX[bKey]];
-        if (!a || !b) return;
-        const ax = a.x * width;
-        const ay = a.y * height;
-        const bx = b.x * width;
-        const by = b.y * height;
-        ctx.beginPath();
-        ctx.moveTo(ax, ay);
-        ctx.lineTo(bx, by);
-        ctx.stroke();
-      });
-
-      // 点
-      landmarks.forEach(lm => {
-        const x = lm.x * width;
-        const y = lm.y * height;
-        ctx.beginPath();
-        ctx.arc(x, y, 3, 0, Math.PI * 2);
-        ctx.fill();
-      });
-    }
-
-    // 正面ビュー専用：軌跡描画（x, y だけ）
-    function drawTrailFront(trail3D, ctx, width, height) {
-      if (!isTrailEnabled) return;
-      if (trail3D.length < 2) return;
-
-      ctx.lineWidth = 4;
-      ctx.strokeStyle = "#ff9800";
-      ctx.beginPath();
-      for (let i = 0; i < trail3D.length; i++) {
-        const p = trail3D[i];
-        const x = p.x * width;
-        const y = p.y * height;
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-      }
-      ctx.stroke();
-    }
-
-    // ==== 3D ターゲット点（軌跡用）====
-    function getTargetPoint3D(key, landmarks) {
+    function getTargetPoint(key, landmarks) {
       if (!landmarks) return null;
 
       if (key === "center") {
@@ -429,170 +337,80 @@
         if (!ls || !rs || !lh || !rh) return null;
         const cx = (ls.x + rs.x + lh.x + rh.x) / 4;
         const cy = (ls.y + rs.y + lh.y + rh.y) / 4;
-        const cz = (ls.z + rs.z + lh.z + rh.z) / 4;
-        return { x: cx, y: cy, z: cz };
+        return { x: cx, y: cy };
       }
 
       const idx = LANDMARK_INDEX[key];
       const lm = landmarks[idx];
       if (!lm) return null;
-      return { x: lm.x, y: lm.y, z: lm.z };
+      return { x: lm.x, y: lm.y };
     }
 
-    // ==== 汎用：2軸投影用の正規化（上／横ビュー用）====
-    function computeAxisRange(landmarks, axisA, axisB) {
-      let minA = Infinity, maxA = -Infinity;
-      let minB = Infinity, maxB = -Infinity;
-      landmarks.forEach(lm => {
-        const a = lm[axisA];
-        const b = lm[axisB];
-        if (a < minA) minA = a;
-        if (a > maxA) maxA = a;
-        if (b < minB) minB = b;
-        if (b > maxB) maxB = b;
-      });
-      if (!isFinite(minA) || !isFinite(maxA)) { minA = -0.5; maxA = 0.5; }
-      if (!isFinite(minB) || !isFinite(maxB)) { minB = -0.5; maxB = 0.5; }
-
-      if (maxA - minA < 1e-3) { minA -= 0.5; maxA += 0.5; }
-      if (maxB - minB < 1e-3) { minB -= 0.5; maxB += 0.5; }
-
-      return { minA, maxA, minB, maxB };
+    function drawTrail() {
+      if (!isTrailEnabled || trailPoints.length < 2) return;
+      canvasCtx.lineWidth = 4;
+      canvasCtx.strokeStyle = "#ff9800";
+      canvasCtx.beginPath();
+      for (let i = 0; i < trailPoints.length; i++) {
+        const p = trailPoints[i];
+        if (i === 0) canvasCtx.moveTo(p.x, p.y);
+        else canvasCtx.lineTo(p.x, p.y);
+      }
+      canvasCtx.stroke();
     }
 
-    function projectValue(v, min, max, size) {
-      const t = (v - min) / (max - min);
-      return t * size;
-    }
-
-    // ==== 骨格描画（上／横ビュー用：任意2軸投影）====
-    function drawSkeletonProjected(landmarks, ctx, width, height, axisPair) {
-      const [axisA, axisB] = axisPair;
-
-      const { minA, maxA, minB, maxB } = computeAxisRange(landmarks, axisA, axisB);
-
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = "#00e5ff";
-      ctx.fillStyle = "#00e5ff";
+    function drawSkeleton(landmarks) {
+      canvasCtx.lineWidth = 3;
+      canvasCtx.strokeStyle = "#00e5ff";
+      canvasCtx.fillStyle = "#00e5ff";
 
       SKELETON_CONNECTIONS.forEach(([aKey, bKey]) => {
         const a = landmarks[LANDMARK_INDEX[aKey]];
         const b = landmarks[LANDMARK_INDEX[bKey]];
         if (!a || !b) return;
-        const ax = projectValue(a[axisA], minA, maxA, width);
-        const ay = projectValue(a[axisB], minB, maxB, height);
-        const bx = projectValue(b[axisA], minA, maxA, width);
-        const by = projectValue(b[axisB], minB, maxB, height);
-
-        ctx.beginPath();
-        ctx.moveTo(ax, ay);
-        ctx.lineTo(bx, by);
-        ctx.stroke();
+        const ax = a.x * canvasElement.width;
+        const ay = a.y * canvasElement.height;
+        const bx = b.x * canvasElement.width;
+        const by = b.y * canvasElement.height;
+        canvasCtx.beginPath();
+        canvasCtx.moveTo(ax, ay);
+        canvasCtx.lineTo(bx, by);
+        canvasCtx.stroke();
       });
 
       landmarks.forEach(lm => {
-        const x = projectValue(lm[axisA], minA, maxA, width);
-        const y = projectValue(lm[axisB], minB, maxB, height);
-        ctx.beginPath();
-        ctx.arc(x, y, 3, 0, Math.PI * 2);
-        ctx.fill();
+        const x = lm.x * canvasElement.width;
+        const y = lm.y * canvasElement.height;
+        canvasCtx.beginPath();
+        canvasCtx.arc(x, y, 3, 0, Math.PI * 2);
+        canvasCtx.fill();
       });
     }
 
-    // ==== 軌跡描画（上／横ビュー用：任意2軸投影）====
-    function drawTrailProjected(trail3D, ctx, width, height, axisPair) {
-      if (!isTrailEnabled || trail3D.length < 2) return;
-      const [axisA, axisB] = axisPair;
-
-      let minA = Infinity, maxA = -Infinity;
-      let minB = Infinity, maxB = -Infinity;
-      trail3D.forEach(p => {
-        const a = p[axisA];
-        const b = p[axisB];
-        if (a < minA) minA = a;
-        if (a > maxA) maxA = a;
-        if (b < minB) minB = b;
-        if (b > maxB) maxB = b;
-      });
-      if (!isFinite(minA) || !isFinite(maxA)) { minA = -0.5; maxA = 0.5; }
-      if (!isFinite(minB) || !isFinite(maxB)) { minB = -0.5; maxB = 0.5; }
-      if (maxA - minA < 1e-3) { minA -= 0.5; maxA += 0.5; }
-      if (maxB - minB < 1e-3) { minB -= 0.5; maxB += 0.5; }
-
-      ctx.lineWidth = 4;
-      ctx.strokeStyle = "#ff9800";
-      ctx.beginPath();
-      for (let i = 0; i < trail3D.length; i++) {
-        const p = trail3D[i];
-        const x = projectValue(p[axisA], minA, maxA, width);
-        const y = projectValue(p[axisB], minB, maxB, height);
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-      }
-      ctx.stroke();
-    }
-
-    // ==== ライブ時結果処理 ====
+    // ライブ時結果処理
     function onResults(results) {
       if (mode !== "live") return;
 
-      resizeAllCanvases();
+      resizeCanvas();
+      canvasCtx.save();
+      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
 
-      const landmarks = results.poseLandmarks;
-
-      // 正面ビュー：ビデオ＋骨格＋軌跡（カメラと完全一致）
-      frontCtx.save();
-      frontCtx.clearRect(0, 0, frontCanvas.width, frontCanvas.height);
       if (results.image) {
-        frontCtx.drawImage(results.image, 0, 0, frontCanvas.width, frontCanvas.height);
+        canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
       }
 
+      const landmarks = results.poseLandmarks;
       if (!landmarks) {
         setStatus("Pose: ランドマーク未検出（体全体が映るように少し下がってください）");
-        frontCtx.restore();
-
-        topCtx.clearRect(0, 0, topCanvas.width, topCanvas.height);
-        sideCtx.clearRect(0, 0, sideCanvas.width, sideCanvas.height);
+        canvasCtx.restore();
         return;
       }
 
       setStatus("Pose: ランドマーク検出中！");
 
-      // 正面ビュー（x, y）そのまま
-      drawSkeletonFront(landmarks, frontCtx, frontCanvas.width, frontCanvas.height);
+      drawSkeleton(landmarks);
 
-      // 軌跡用3Dポイント
-      if (isTrailEnabled) {
-        const targetKey = targetSelect.value;
-        const p3d = getTargetPoint3D(targetKey, landmarks);
-        if (p3d) {
-          trailPoints3D.push(p3d);
-          const MAX_POINTS = 200;
-          if (trailPoints3D.length > MAX_POINTS) {
-            trailPoints3D.splice(0, trailPoints3D.length - MAX_POINTS);
-          }
-        }
-      }
-
-      // 正面軌跡（x, y そのまま）
-      drawTrailFront(trailPoints3D, frontCtx, frontCanvas.width, frontCanvas.height);
-      frontCtx.restore();
-
-      // 上ビュー（x-z）
-      topCtx.save();
-      topCtx.clearRect(0, 0, topCanvas.width, topCanvas.height);
-      drawSkeletonProjected(landmarks, topCtx, topCanvas.width, topCanvas.height, ["x", "z"]);
-      drawTrailProjected(trailPoints3D, topCtx, topCanvas.width, topCanvas.height, ["x", "z"]);
-      topCtx.restore();
-
-      // 横ビュー（z-y）
-      sideCtx.save();
-      sideCtx.clearRect(0, 0, sideCanvas.width, sideCanvas.height);
-      drawSkeletonProjected(landmarks, sideCtx, sideCanvas.width, sideCanvas.height, ["z", "y"]);
-      drawTrailProjected(trailPoints3D, sideCtx, sideCanvas.width, sideCanvas.height, ["z", "y"]);
-      sideCtx.restore();
-
-      // 記録中なら記録
+      // 記録中ならこのフレームを保存
       if (isRecording) {
         const copy = landmarks.map(lm => ({ ...lm }));
         recordedFrames.push(copy);
@@ -601,13 +419,30 @@
           clearRecordBtn.disabled = false;
         }
       }
+
+      // 軌跡更新
+      if (isTrailEnabled) {
+        const targetKey = targetSelect.value;
+        const tp = getTargetPoint(targetKey, landmarks);
+        if (tp) {
+          const px = tp.x * canvasElement.width;
+          const py = tp.y * canvasElement.height;
+          trailPoints.push({ x: px, y: py });
+          const MAX_POINTS = 200;
+          if (trailPoints.length > MAX_POINTS) {
+            trailPoints.splice(0, trailPoints.length - MAX_POINTS);
+          }
+        }
+      }
+
+      drawTrail();
+      canvasCtx.restore();
     }
 
-    // ==== Pose 初期化（Pose / Pose.Pose 両対応）====
+    // Pose 初期化
     function initPose() {
       try {
         let PoseClass = null;
-
         if (typeof Pose === "undefined") {
           setStatus("カメラのみ動作中（Pose グローバルが存在しません）");
           return;
@@ -642,7 +477,7 @@
       }
     }
 
-    // ==== カメラデバイス管理 ====
+    // カメラデバイス管理
     async function updateDeviceList() {
       try {
         const devices = await navigator.mediaDevices.enumerateDevices();
@@ -718,7 +553,7 @@
       }
     }
 
-    // メインループ（1回だけ開始）
+    // メインループ
     async function frameLoop() {
       if (poseReady && pose && mode === "live" && videoElement.readyState >= 2) {
         try {
@@ -733,13 +568,13 @@
       }
     }
 
-    // ==== 録画・リプレイ ====
+    // 録画・リプレイ
     startRecordBtn.addEventListener("click", () => {
       recordedFrames = [];
       isRecording = true;
       mode = "live";
       replayIndex = 0;
-      trailPoints3D = [];
+      trailPoints = [];
       startRecordBtn.disabled = true;
       stopRecordBtn.disabled = false;
       playRecordBtn.disabled = true;
@@ -775,7 +610,7 @@
       mode = "replay";
       isRecording = false;
       replayIndex = 0;
-      trailPoints3D = [];
+      trailPoints = [];
       setStatus("リプレイ再生中...");
 
       // リプレイ中はカメラ映像を非表示
@@ -788,14 +623,12 @@
       replayStep();
     });
 
-    // ★ リプレイ：3ビュー同時に再生。速度は REPLAY_INTERVAL_MS で調整。
     function replayStep() {
       if (mode !== "replay") return;
       if (replayIndex >= recordedFrames.length) {
         mode = "live";
         setStatus("リプレイ終了。ライブモードに戻りました。");
 
-        // カメラ映像を再表示
         videoElement.style.visibility = "visible";
 
         startRecordBtn.disabled = false;
@@ -805,49 +638,37 @@
       }
 
       const landmarks = recordedFrames[replayIndex];
-      resizeAllCanvases();
+      resizeCanvas();
+      canvasCtx.save();
+      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
 
-      // 軌跡用3Dポイント更新
+      // リプレイ時は背景は黒、骨格＋軌跡のみ
+      drawSkeleton(landmarks);
+
       if (isTrailEnabled) {
         const targetKey = targetSelect.value;
-        const p3d = getTargetPoint3D(targetKey, landmarks);
-        if (p3d) {
-          trailPoints3D.push(p3d);
+        const tp = getTargetPoint(targetKey, landmarks);
+        if (tp) {
+          const px = tp.x * canvasElement.width;
+          const py = tp.y * canvasElement.height;
+          trailPoints.push({ x: px, y: py });
           const MAX_POINTS = 200;
-          if (trailPoints3D.length > MAX_POINTS) {
-            trailPoints3D.splice(0, trailPoints3D.length - MAX_POINTS);
+          if (trailPoints.length > MAX_POINTS) {
+            trailPoints.splice(0, trailPoints.length - MAX_POINTS);
           }
         }
       }
 
-      // 正面ビュー（x,y そのまま。背景は黒）
-      frontCtx.save();
-      frontCtx.clearRect(0, 0, frontCanvas.width, frontCanvas.height);
-      drawSkeletonFront(landmarks, frontCtx, frontCanvas.width, frontCanvas.height);
-      drawTrailFront(trailPoints3D, frontCtx, frontCanvas.width, frontCanvas.height);
-      frontCtx.restore();
-
-      // 上ビュー（x-z）
-      topCtx.save();
-      topCtx.clearRect(0, 0, topCanvas.width, topCanvas.height);
-      drawSkeletonProjected(landmarks, topCtx, topCanvas.width, topCanvas.height, ["x", "z"]);
-      drawTrailProjected(trailPoints3D, topCtx, topCanvas.width, topCanvas.height, ["x", "z"]);
-      topCtx.restore();
-
-      // 横ビュー（z-y）
-      sideCtx.save();
-      sideCtx.clearRect(0, 0, sideCanvas.width, sideCanvas.height);
-      drawSkeletonProjected(landmarks, sideCtx, sideCanvas.width, sideCanvas.height, ["z", "y"]);
-      drawTrailProjected(trailPoints3D, sideCtx, sideCanvas.width, sideCanvas.height, ["z", "y"]);
-      sideCtx.restore();
+      drawTrail();
+      canvasCtx.restore();
 
       replayIndex++;
       if (mode === "replay") {
-        setTimeout(replayStep, REPLAY_INTERVAL_MS);
+        setTimeout(replayStep, replayIntervalMs);
       }
     }
 
-    // ==== カメラ切替 ====
+    // カメラ切替
     switchCameraBtn.addEventListener("click", async () => {
       if (videoDevices.length <= 1) {
         setStatus("利用可能なカメラが1つだけのため、切り替えできません。");
@@ -859,7 +680,7 @@
       await startCameraStream();
     });
 
-    // ==== カメラ開始ボタン ====
+    // カメラ開始ボタン
     startButton.addEventListener("click", async () => {
       await startCameraStream();
       if (!loopStarted) {
