@@ -2,8 +2,11 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
-  <title>Pose Tracking Debug</title>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5/pose.js"></script>
+  <title>Pose Tracking (MediaPipe公式スタイル版)</title>
+  <!-- MediaPipe Pose / Drawing / Camera Utils -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -70,7 +73,7 @@
       height: 100%;
       object-fit: cover;
       transform: scaleX(-1);
-      display: block; /* カメラ映像も見えるように */
+      display: block;
     }
     canvas {
       position: absolute;
@@ -96,7 +99,7 @@
 </head>
 <body>
   <div class="app-container">
-    <h1>骨格検出 &amp; 軌跡表示デモ（デバッグ版）</h1>
+    <h1>骨格検出 &amp; 軌跡表示（MediaPipe公式スタイル）</h1>
 
     <div class="controls">
       <label for="target">追跡パーツ：</label>
@@ -112,13 +115,13 @@
     </div>
 
     <div class="video-wrapper">
-      <video id="video" playsinline autoplay muted></video>
-      <canvas id="output"></canvas>
+      <video class="input_video" id="video" playsinline></video>
+      <canvas class="output_canvas" id="output"></canvas>
     </div>
 
     <p class="hint">
-      ・明るい場所で、体全体が映るように少し離れて立ってください。<br />
-      ・インカメラ（自撮り）の映像に水色の骨格が重なれば成功です。
+      ・明るい場所で、上半身〜全身がカメラに入るように少し離れてください。<br />
+      ・骨格は水色、選択したパーツの軌跡はオレンジで表示されます。
     </p>
     <p class="status" id="status">初期化中...</p>
   </div>
@@ -128,108 +131,68 @@
     const canvasElement = document.getElementById("output");
     const canvasCtx = canvasElement.getContext("2d");
     const statusEl = document.getElementById("status");
-
     const targetSelect = document.getElementById("target");
     const clearButton = document.getElementById("clear");
+
     let trailPoints = [];
-
-    const LANDMARK_INDEX = {
-      nose: 0,
-      left_shoulder: 11,
-      right_shoulder: 12,
-      left_elbow: 13,
-      right_elbow: 14,
-      left_wrist: 15,
-      right_wrist: 16,
-      left_hip: 23,
-      right_hip: 24,
-      left_knee: 25,
-      right_knee: 26,
-      left_ankle: 27,
-      right_ankle: 28,
-    };
-
-    const SKELETON_CONNECTIONS = [
-      ["left_shoulder", "right_shoulder"],
-      ["left_shoulder", "left_hip"],
-      ["right_shoulder", "right_hip"],
-      ["left_hip", "right_hip"],
-      ["left_shoulder", "left_elbow"],
-      ["left_elbow", "left_wrist"],
-      ["right_shoulder", "right_elbow"],
-      ["right_elbow", "right_wrist"],
-      ["left_hip", "left_knee"],
-      ["left_knee", "left_ankle"],
-      ["right_hip", "right_knee"],
-      ["right_knee", "right_ankle"],
-      ["nose", "left_shoulder"],
-      ["nose", "right_shoulder"],
-    ];
-
-    clearButton.addEventListener("click", () => {
-      trailPoints = [];
-    });
 
     function setStatus(msg) {
       statusEl.textContent = msg;
     }
+
+    clearButton.addEventListener("click", () => {
+      trailPoints = [];
+    });
 
     function resizeCanvas() {
       const rect = canvasElement.getBoundingClientRect();
       canvasElement.width = rect.width;
       canvasElement.height = rect.height;
     }
-
     window.addEventListener("resize", resizeCanvas);
 
-    // Pose 初期化
-    let pose;
-    try {
-      pose = new Pose.Pose({
-        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5/${file}`,
-      });
-      pose.setOptions({
-        modelComplexity: 1,
-        smoothLandmarks: true,
-        enableSegmentation: false,
-        selfieMode: true,                 // ← インカメラ想定
-        minDetectionConfidence: 0.3,      // ← 少しゆるく
-        minTrackingConfidence: 0.3,
-      });
-      pose.onResults(onResults);
-      setStatus("Pose 初期化完了。カメラ起動中...");
-    } catch (e) {
-      console.error(e);
-      setStatus("Pose の初期化でエラーが発生しました: " + e.message);
+    // 追跡パーツのインデックス
+    const LANDMARK_INDEX = {
+      nose: 0,
+      left_shoulder: 11,
+      right_shoulder: 12,
+      left_hip: 23,
+      right_hip: 24,
+      left_wrist: 15,
+      right_wrist: 16,
+      left_ankle: 27,
+      right_ankle: 28,
+    };
+
+    function getTargetPoint(key, landmarks) {
+      if (!landmarks) return null;
+
+      if (key === "center") {
+        const ls = landmarks[LANDMARK_INDEX.left_shoulder];
+        const rs = landmarks[LANDMARK_INDEX.right_shoulder];
+        const lh = landmarks[LANDMARK_INDEX.left_hip];
+        const rh = landmarks[LANDMARK_INDEX.right_hip];
+        if (!ls || !rs || !lh || !rh) return null;
+        const cx = (ls.x + rs.x + lh.x + rh.x) / 4;
+        const cy = (ls.y + rs.y + lh.y + rh.y) / 4;
+        return { x: cx, y: cy };
+      }
+
+      const idx = LANDMARK_INDEX[key];
+      return landmarks[idx] || null;
     }
 
-    async function startCamera() {
-      try {
-        setStatus("カメラアクセス要求中...");
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "user" },
-          audio: false,
-        });
-        videoElement.srcObject = stream;
-        await videoElement.play();
-        setStatus("カメラ起動成功。Pose 処理中...");
-        requestAnimationFrame(processFrame);
-      } catch (err) {
-        console.error(err);
-        setStatus("カメラ取得に失敗しました。権限やHTTPSを確認してください: " + err.message);
+    function drawTrail() {
+      if (trailPoints.length < 2) return;
+      canvasCtx.lineWidth = 4;
+      canvasCtx.strokeStyle = "#ff9800"; // オレンジ
+      canvasCtx.beginPath();
+      for (let i = 0; i < trailPoints.length; i++) {
+        const p = trailPoints[i];
+        if (i === 0) canvasCtx.moveTo(p.x, p.y);
+        else canvasCtx.lineTo(p.x, p.y);
       }
-    }
-
-    async function processFrame() {
-      if (pose && videoElement.readyState >= 2) {
-        try {
-          await pose.send({ image: videoElement });
-        } catch (e) {
-          console.error(e);
-          setStatus("Pose 処理中にエラー: " + e.message);
-        }
-      }
-      requestAnimationFrame(processFrame);
+      canvasCtx.stroke();
     }
 
     function onResults(results) {
@@ -238,21 +201,31 @@
       canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
 
       // カメラ映像
-      if (results.image) {
-        canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
-      }
+      canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
 
       const landmarks = results.poseLandmarks;
       if (!landmarks) {
-        setStatus("Pose: ランドマーク未検出（体全体が映るように少し下がってみてください）");
+        setStatus("Pose: ランドマーク未検出（体全体が映るように下がってみてください）");
         canvasCtx.restore();
         return;
-      } else {
-        setStatus("Pose: ランドマーク検出中！");
       }
 
-      drawSkeleton(landmarks);
+      setStatus("Pose: ランドマーク検出中！");
 
+      // MediaPipe の公式ユーティリティで骨格描画（色だけ上書き）
+      DrawingUtils.drawConnectors(
+        canvasCtx,
+        landmarks,
+        Pose.POSE_CONNECTIONS,
+        { color: "#00e5ff", lineWidth: 4 }  // 水色の骨格
+      );
+      DrawingUtils.drawLandmarks(
+        canvasCtx,
+        landmarks,
+        { color: "#00e5ff", radius: 3 }    // 水色の点
+      );
+
+      // 追跡パーツの軌跡更新
       const targetKey = targetSelect.value;
       const targetPoint = getTargetPoint(targetKey, landmarks);
       if (targetPoint) {
@@ -266,68 +239,38 @@
         }
       }
 
+      // 軌跡描画（オレンジ）
       drawTrail();
+
       canvasCtx.restore();
     }
 
-    function drawSkeleton(landmarks) {
-      canvasCtx.lineWidth = 3;
-      canvasCtx.strokeStyle = "#00e5ff";
-      SKELETON_CONNECTIONS.forEach(([aKey, bKey]) => {
-        const a = landmarks[LANDMARK_INDEX[aKey]];
-        const b = landmarks[LANDMARK_INDEX[bKey]];
-        if (!a || !b) return;
-        const ax = a.x * canvasElement.width;
-        const ay = a.y * canvasElement.height;
-        const bx = b.x * canvasElement.width;
-        const by = b.y * canvasElement.height;
-        canvasCtx.beginPath();
-        canvasCtx.moveTo(ax, ay);
-        canvasCtx.lineTo(bx, by);
-        canvasCtx.stroke();
-      });
+    // Pose 初期化（公式サンプルに近い形）
+    const pose = new Pose.Pose({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`,
+    });
+    pose.setOptions({
+      modelComplexity: 1,
+      smoothLandmarks: true,
+      enableSegmentation: false,
+      selfieMode: true,               // 自撮り用
+      minDetectionConfidence: 0.3,    // 検出しやすく
+      minTrackingConfidence: 0.3,
+    });
+    pose.onResults(onResults);
 
-      canvasCtx.fillStyle = "#00e5ff";
-      landmarks.forEach((lm) => {
-        const x = lm.x * canvasElement.width;
-        const y = lm.y * canvasElement.height;
-        canvasCtx.beginPath();
-        canvasCtx.arc(x, y, 3, 0, Math.PI * 2);
-        canvasCtx.fill();
-      });
-    }
-
-    function drawTrail() {
-      if (trailPoints.length < 2) return;
-      canvasCtx.lineWidth = 4;
-      canvasCtx.strokeStyle = "#ff9800";
-      canvasCtx.beginPath();
-      for (let i = 0; i < trailPoints.length; i++) {
-        const p = trailPoints[i];
-        if (i === 0) canvasCtx.moveTo(p.x, p.y);
-        else canvasCtx.lineTo(p.x, p.y);
-      }
-      canvasCtx.stroke();
-    }
-
-    function getTargetPoint(key, landmarks) {
-      if (key === "center") {
-        const ls = landmarks[LANDMARK_INDEX.left_shoulder];
-        const rs = landmarks[LANDMARK_INDEX.right_shoulder];
-        const lh = landmarks[LANDMARK_INDEX.left_hip];
-        const rh = landmarks[LANDMARK_INDEX.right_hip];
-        if (!ls || !rs || !lh || !rh) return null;
-        const cx = (ls.x + rs.x + lh.x + rh.x) / 4;
-        const cy = (ls.y + rs.y + lh.y + rh.y) / 4;
-        return { x: cx, y: cy };
-      }
-      const index = LANDMARK_INDEX[key];
-      return landmarks[index] || null;
-    }
-
-    // 起動
-    setStatus("初期化完了。カメラ起動を開始します。");
-    startCamera();
+    // Camera Utils の利用（公式スタイル）
+    let camera = null;
+    setStatus("カメラ起動準備中...");
+    camera = new Camera.Camera(videoElement, {
+      onFrame: async () => {
+        await pose.send({ image: videoElement });
+      },
+      width: 480,
+      height: 640,
+    });
+    camera.start();
+    setStatus("カメラ起動 & Pose 処理中...");
   </script>
 </body>
 </html>
